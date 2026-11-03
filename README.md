@@ -18,48 +18,64 @@ El sistema permite registrar productos, controlar las cantidades disponibles en 
 - **Buscador:** permite encontrar productos por nombre mientras se escribe.
 - **Edición de productos:** permite modificar nombres, descripciones y cantidades.
 - **Eliminación:** permite quitar productos del inventario.
-- **Guardado automático:** conserva los datos en el navegador.
+- **Guardado automático:** sincroniza productos entre dispositivos conectados a la misma cuenta.
+- **Actualización en tiempo real:** refleja altas, cambios y eliminaciones en las sesiones abiertas.
 - **Exportación CSV:** permite descargar el inventario para abrirlo con Excel.
 
----
+- Supabase Auth
+- Supabase Database y Realtime
 
 ## 📱 Diseño adaptable
-
+## Configuración de sincronización
 El sistema está preparado para funcionar en:
-
+La página requiere un proyecto de Supabase para compartir el inventario. La URL y la clave `anon` son públicas; la protección de los datos depende de las políticas de acceso de la base.
 - Computadoras de escritorio (PC).
-- Notebooks.
+### 1. Crear la tabla
 - Celulares Android.
-- iPhone.
+En Supabase, abrí **SQL Editor**, pegá y ejecutá:
 - Tablets.
-
+```sql
+create table public.products (
+	id uuid primary key default gen_random_uuid(),
+	user_id uuid not null references auth.users(id) on delete cascade,
+	name text not null,
+	description text not null default '',
+	depot integer not null default 0 check (depot >= 0),
+	store integer not null default 0 check (store >= 0),
+	created_at timestamptz not null default now()
+);
 La interfaz se adapta automáticamente al tamaño de pantalla.
-
+alter table public.products enable row level security;
 ---
-
+create policy "Users manage their own products"
+on public.products
+for all to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 ## 🛠️ Tecnologías utilizadas
-
+alter publication supabase_realtime add table public.products;
+```
 - HTML5
-- CSS3
+### 2. Crear la cuenta compartida
 - JavaScript
-- LocalStorage
+En **Authentication → Users**, creá una cuenta para el inventario. Desactivá el registro público de usuarios. Iniciá sesión con esa misma cuenta en todos los dispositivos que deban compartir los productos.
 - GitHub Pages
-
+### 3. Conectar la página
 No requiere instalar programas adicionales.
-
+En **Project Settings → API**, copiá la Project URL y la clave publicable (`anon`). En `index.html`, completá estas constantes:
 ---
+```js
+const SUPABASE_URL = "https://tu-proyecto.supabase.co";
+const SUPABASE_ANON_KEY = "tu-clave-publicable";
+```
 
-## 📦 Instalación y publicación
+No pongas la clave `service_role` en la página. Esa clave permite saltarse las políticas de seguridad.
 
-### 1. Crear el repositorio
+### 4. Publicar con GitHub Pages
 
-Ingresar a GitHub y crear un repositorio nuevo con el nombre:
+En **Settings → Pages**, elegí **Deploy from a branch**, rama `main`, carpeta `/(root)` y guardá. La URL del proyecto es:
 
-`inventario-cruz-verde`
-
-### 2. Subir los archivos
-
-Subir el archivo principal:
+https://daanieelrp35-ops.github.io/Farmacia-Cruz-Verde/
 
 `index.html`
 
@@ -99,15 +115,11 @@ El inventario calcula automáticamente:
 
 ---
 
-## ⚠️ Importante: almacenamiento
+## ⚠️ Datos existentes y acceso
 
-Esta versión utiliza LocalStorage.
+Los productos guardados previamente en `localStorage` no se copian automáticamente a Supabase; permanecen en el navegador donde se cargaron. Exportalos a CSV antes de cambiar al modo compartido si necesitás conservarlos.
 
-Esto significa que los productos quedan guardados en el navegador y dispositivo donde se cargan.
-
-Los datos no se sincronizan automáticamente entre diferentes computadoras o celulares.
-
-Se recomienda exportar periódicamente el inventario mediante el botón CSV para conservar una copia de seguridad.
+Sin la configuración de Supabase, la página funciona en modo local y los cambios no se comparten. No cargues datos personales ni información de pacientes en este sistema.
 
 ---
 

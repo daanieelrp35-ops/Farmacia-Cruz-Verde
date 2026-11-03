@@ -199,6 +199,23 @@ th {
   background: white;
 }
 
+.sync-status {
+  color: #d7eee4;
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+
+.sync-status.error { color: #ffd2cf; }
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header-content p { margin-bottom: 0; }
+
 @media(max-width: 850px) {
   .workspace { grid-template-columns: 1fr; }
 }
@@ -230,12 +247,34 @@ th {
 
 <header>
   <div class="header-content">
-    <h1>✚ Farmacia Cruz Verde</h1>
-    <p>Sistema de control de inventario</p>
+    <div>
+      <h1>✚ Farmacia Cruz Verde</h1>
+      <p>Sistema de control de inventario</p>
+      <p class="sync-status" id="syncStatus" role="status" aria-live="polite"></p>
+    </div>
+    <button class="secondary" id="logoutButton" type="button" hidden>
+      Cerrar sesión
+    </button>
   </div>
 </header>
 
 <main>
+
+<section class="panel" id="loginPanel" hidden>
+  <h2>Inventario compartido</h2>
+  <p id="loginMessage">Iniciá sesión para acceder al inventario compartido.</p>
+  <form id="loginForm">
+    <label for="loginEmail">Correo</label>
+    <input id="loginEmail" type="email" autocomplete="username" required>
+
+    <label for="loginPassword">Contraseña</label>
+    <input id="loginPassword" type="password" autocomplete="current-password" required>
+
+    <button class="primary" type="submit">Iniciar sesión</button>
+  </form>
+</section>
+
+<div id="inventoryApp" hidden>
 
 <section class="stats">
   <div class="stat">
@@ -347,14 +386,26 @@ Todavía no hay productos cargados.
 </section>
 </div>
 
+</div>
+
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 
 const STORAGE_KEY = "cruzVerdeInventario_v1";
+const SUPABASE_URL = "";
+const SUPABASE_ANON_KEY = "";
+const CLOUD_MODE = SUPABASE_URL.startsWith("https://") &&
+  SUPABASE_ANON_KEY.length > 0;
+const supabaseClient = CLOUD_MODE && window.supabase
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
 
-let products = loadProducts();
+let products = CLOUD_MODE ? [] : loadProducts();
 let editingId = null;
+let currentUser = null;
+let realtimeChannel = null;
 
 const $ = id => document.getElementById(id);
 
@@ -372,6 +423,8 @@ function loadProducts() {
 }
 
 function saveProducts() {
+  if (CLOUD_MODE) return;
+
   try {
     localStorage.setItem(
       STORAGE_KEY,
@@ -379,6 +432,137 @@ function saveProducts() {
     );
   } catch {
     alert("No se pudieron guardar los datos.");
+  }
+}
+
+function setSyncStatus(message, isError = false) {
+  const status = $("syncStatus");
+  status.textContent = message;
+  status.classList.toggle("error", isError);
+}
+
+async function loadCloudProducts() {
+  const { data, error } = await supabaseClient
+    .from("products")
+    .select("id, name, description, depot, store")
+    .order("name", { ascending: true });
+
+  if (error) throw error;
+
+  products = (data || []).map(product => ({
+    ...product,
+    depot: Number(product.depot),
+    store: Number(product.store)
+  }));
+  render();
+}
+
+async function persistProduct(product) {
+  if (CLOUD_MODE) {
+    if (!supabaseClient || !currentUser) {
+      throw new Error("Se requiere una sesión para guardar productos.");
+    }
+
+    const { error } = await supabaseClient
+      .from("products")
+      .upsert({ ...product, user_id: currentUser.id });
+
+    if (error) throw error;
+  }
+
+  const index = products.findIndex(item => item.id === product.id);
+  if (index >= 0) {
+    products[index] = product;
+  } else {
+    products.push(product);
+  }
+
+  saveProducts();
+  render();
+}
+
+function subscribeToChanges() {
+  if (realtimeChannel) {
+    supabaseClient.removeChannel(realtimeChannel);
+  }
+
+  realtimeChannel = supabaseClient
+    .channel(`products-${currentUser.id}`)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "products",
+      filter: `user_id=eq.${currentUser.id}`
+    }, async () => {
+      try {
+        await loadCloudProducts();
+      } catch (error) {
+        setSyncStatus("No se pudo actualizar el inventario.", true);
+      }
+    })
+    .subscribe(status => {
+      if (status === "SUBSCRIBED") {
+        setSyncStatus("Conectado: los cambios se comparten entre dispositivos.");
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        setSyncStatus("Sin conexión en tiempo real. Recargá para ver cambios.", true);
+      }
+    });
+}
+
+async function applySession(session) {
+  currentUser = session?.user || null;
+  $("logoutButton").hidden = !currentUser;
+  $("loginPanel").hidden = Boolean(currentUser);
+  $("inventoryApp").hidden = !currentUser;
+
+  if (!currentUser) {
+    if (realtimeChannel) {
+      supabaseClient.removeChannel(realtimeChannel);
+      realtimeChannel = null;
+    }
+    products = [];
+    render();
+    setSyncStatus("Iniciá sesión para ver el inventario compartido.");
+    return;
+  }
+
+  setSyncStatus("Sincronizando inventario...");
+  try {
+    await loadCloudProducts();
+    subscribeToChanges();
+  } catch (error) {
+    setSyncStatus("No se pudo cargar el inventario compartido.", true);
+  }
+}
+
+async function initializeApp() {
+  if (!CLOUD_MODE) {
+    $("inventoryApp").hidden = false;
+    render();
+    setSyncStatus("Modo local: los cambios solo se guardan en este dispositivo.");
+    return;
+  }
+
+  if (!supabaseClient) {
+    $("loginPanel").hidden = false;
+    $("loginMessage").textContent =
+      "No se pudo cargar la conexión a la base de datos. Revisá la configuración.";
+    $("loginForm").hidden = true;
+    setSyncStatus("No se pudo iniciar la sincronización.", true);
+    return;
+  }
+
+  try {
+    const { data, error } = await supabaseClient.auth.getSession();
+    if (error) throw error;
+
+    supabaseClient.auth.onAuthStateChange((_event, session) => {
+      window.setTimeout(() => applySession(session), 0);
+    });
+
+    await applySession(data.session);
+  } catch (error) {
+    setSyncStatus("No se pudo conectar con la base de datos.", true);
   }
 }
 
@@ -492,7 +676,7 @@ function resetForm() {
   $("cancelEdit").style.display = "none";
 }
 
-form.addEventListener("submit", event => {
+form.addEventListener("submit", async event => {
 
   event.preventDefault();
 
@@ -515,39 +699,31 @@ form.addEventListener("submit", event => {
     return;
   }
 
-  if (editingId !== null) {
+  const existingProduct = editingId === null
+    ? null
+    : products.find(product => product.id === editingId);
+  const product = {
+    id: existingProduct?.id || crypto.randomUUID(),
+    name,
+    description,
+    depot,
+    store
+  };
 
-    const item = products.find(
-      p => p.id === editingId
-    );
-
-    if (item) {
-      Object.assign(item, {
-        name, description, depot, store
-      });
-    }
-
-  } else {
-
-    products.push({
-      id: crypto.randomUUID
-        ? crypto.randomUUID()
-        : String(Date.now()) + Math.random(),
-      name,
-      description,
-      depot,
-      store
-    });
-
+  try {
+    await persistProduct(product);
+    resetForm();
+    setSyncStatus(CLOUD_MODE
+      ? "Producto guardado en el inventario compartido."
+      : "Guardado solo en este dispositivo.");
+  } catch (error) {
+    setSyncStatus("No se pudo guardar el producto.", true);
+    alert("No se pudo guardar el producto. Revisá la conexión e intentá de nuevo.");
   }
-
-  saveProducts();
-  resetForm();
-  render();
 
 });
 
-$("inventoryBody").addEventListener("click", event => {
+$("inventoryBody").addEventListener("click", async event => {
 
   const editId = event.target.dataset.edit;
   const deleteId = event.target.dataset.delete;
@@ -589,15 +765,31 @@ $("inventoryBody").addEventListener("click", event => {
       p &&
       confirm(`¿Querés eliminar "${p.name}"?`)
     ) {
+      try {
+        if (CLOUD_MODE) {
+          if (!supabaseClient || !currentUser) {
+            throw new Error("Se requiere una sesión para borrar productos.");
+          }
 
-      products = products.filter(
-        item => item.id !== deleteId
-      );
+          const { error } = await supabaseClient
+            .from("products")
+            .delete()
+            .eq("id", deleteId);
 
-      if (editingId === deleteId) resetForm();
+          if (error) throw error;
+        }
 
-      saveProducts();
-      render();
+        products = products.filter(item => item.id !== deleteId);
+        if (editingId === deleteId) resetForm();
+        saveProducts();
+        render();
+        setSyncStatus(CLOUD_MODE
+          ? "Producto eliminado del inventario compartido."
+          : "Eliminado de este dispositivo.");
+      } catch (error) {
+        setSyncStatus("No se pudo eliminar el producto.", true);
+        alert("No se pudo eliminar el producto. Revisá la conexión e intentá de nuevo.");
+      }
     }
   }
 
@@ -657,11 +849,31 @@ $("exportBtn").addEventListener("click", () => {
   a.download = "inventario-farmacia-cruz-verde.csv";
   a.click();
 
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 
 });
 
-render();
+$('loginForm').addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!supabaseClient) return;
+
+  setSyncStatus("Iniciando sesión...");
+  const { error } = await supabaseClient.auth.signInWithPassword({
+    email: $("loginEmail").value.trim(),
+    password: $("loginPassword").value
+  });
+
+  if (error) {
+    setSyncStatus("No se pudo iniciar sesión. Revisá el correo y la contraseña.", true);
+  }
+});
+
+$("logoutButton").addEventListener("click", async () => {
+  const { error } = await supabaseClient.auth.signOut();
+  if (error) setSyncStatus("No se pudo cerrar la sesión.", true);
+});
+
+initializeApp();
 
 </script>
 
