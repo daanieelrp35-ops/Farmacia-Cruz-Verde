@@ -1,0 +1,669 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#145c45">
+<title>Inventario | Farmacia Cruz Verde</title>
+
+<style>
+:root {
+  --green: #145c45;
+  --dark: #104735;
+  --bg: #f4f7f5;
+  --red: #b42318;
+  --line: #e1e9e4;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: var(--bg);
+  color: #1e2b25;
+}
+
+header {
+  background: var(--green);
+  color: white;
+  padding: 25px;
+}
+
+.header-content, main {
+  max-width: 1180px;
+  margin: auto;
+}
+
+header h1 { margin: 0; }
+header p { margin-bottom: 0; }
+
+main { padding: 25px 15px; }
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.stat, .panel {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+
+.stat span {
+  display: block;
+  color: #68766f;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.stat strong { font-size: 26px; }
+.alert strong { color: var(--red); }
+
+.workspace {
+  display: grid;
+  grid-template-columns: 0.8fr 1.7fr;
+  gap: 18px;
+  align-items: start;
+}
+
+h2 { margin-top: 0; }
+
+label {
+  display: block;
+  margin: 14px 0 7px;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #d6e0da;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+input:focus {
+  outline: 2px solid #145c4555;
+}
+
+.stock-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+button {
+  border: none;
+  padding: 11px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.primary {
+  background: var(--green);
+  color: white;
+  width: 100%;
+  margin-top: 18px;
+}
+
+.secondary {
+  background: #eaf4ef;
+  color: var(--green);
+}
+
+.danger {
+  background: #fff0ef;
+  color: var(--red);
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.toolbar input { flex: 1; }
+
+.table-wrap {
+  overflow-x: auto;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 650px;
+  background: white;
+}
+
+th, td {
+  padding: 13px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+th {
+  background: #f7faf8;
+  color: #627168;
+}
+
+.product-name { font-weight: bold; }
+
+.product-desc {
+  font-size: 12px;
+  color: #68766f;
+  margin-top: 4px;
+}
+
+.low-row { background: #fff0ef; }
+.low-row .total,
+.low-row .product-name { color: var(--red); }
+
+.total { font-weight: bold; font-size: 16px; }
+
+.status {
+  background: #eaf4ef;
+  color: var(--green);
+  padding: 5px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.status.low {
+  background: #ffdcda;
+  color: var(--red);
+}
+
+.actions {
+  display: flex;
+  gap: 5px;
+}
+
+.actions button { font-size: 12px; }
+
+.empty {
+  text-align: center;
+  padding: 25px;
+  color: #68766f;
+  background: white;
+}
+
+@media(max-width: 850px) {
+  .workspace { grid-template-columns: 1fr; }
+}
+
+@media(max-width: 560px) {
+  header { padding: 20px 15px; }
+  main { padding: 15px 10px; }
+
+  .stats { gap: 7px; }
+
+  .stat {
+    padding: 12px 8px;
+  }
+
+  .stat span { font-size: 10px; }
+  .stat strong { font-size: 20px; }
+
+  .panel { padding: 15px; }
+
+  .toolbar { flex-wrap: wrap; }
+  .toolbar input { flex-basis: 100%; }
+
+  .toolbar button { flex: 1; }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <div class="header-content">
+    <h1>✚ Farmacia Cruz Verde</h1>
+    <p>Sistema de control de inventario</p>
+  </div>
+</header>
+
+<main>
+
+<section class="stats">
+  <div class="stat">
+    <span>Productos registrados</span>
+    <strong id="statProducts">0</strong>
+  </div>
+
+  <div class="stat">
+    <span>Unidades totales</span>
+    <strong id="statUnits">0</strong>
+  </div>
+
+  <div class="stat alert">
+    <span>Productos para reponer</span>
+    <strong id="statLow">0</strong>
+  </div>
+</section>
+
+<div class="workspace">
+
+<section class="panel">
+
+<h2 id="formTitle">Agregar producto</h2>
+
+<form id="productForm">
+
+<label>Nombre del producto *</label>
+<input id="name" required maxlength="100"
+placeholder="Ej: Paracetamol 500 mg">
+
+<label>Descripción</label>
+<input id="description" maxlength="180"
+placeholder="Ej: Caja x 16 comprimidos">
+
+<div class="stock-fields">
+
+<div>
+<label>Stock depósito *</label>
+<input id="depot" type="number"
+min="0" step="1" value="0" required>
+</div>
+
+<div>
+<label>Stock local *</label>
+<input id="store" type="number"
+min="0" step="1" value="0" required>
+</div>
+
+</div>
+
+<button class="primary" id="saveButton">
+＋ Guardar producto
+</button>
+
+<button class="secondary" id="cancelEdit"
+type="button"
+style="display:none;width:100%;margin-top:8px">
+Cancelar edición
+</button>
+
+</form>
+
+<p>
+El sistema marcará en rojo los productos
+cuyo stock total sea de 3 unidades o menos.
+</p>
+
+</section>
+
+<section class="panel">
+
+<h2>Inventario de mercadería</h2>
+
+<div class="toolbar">
+
+<input id="search" type="search"
+placeholder="Buscar producto por nombre...">
+
+<button class="secondary" id="exportBtn">
+↓ Exportar CSV
+</button>
+
+</div>
+
+<div class="table-wrap">
+
+<table>
+<thead>
+<tr>
+<th>Producto</th>
+<th>Depósito</th>
+<th>Local</th>
+<th>Total</th>
+<th>Estado</th>
+<th>Acciones</th>
+</tr>
+</thead>
+
+<tbody id="inventoryBody"></tbody>
+
+</table>
+
+<div class="empty" id="emptyState">
+Todavía no hay productos cargados.
+</div>
+
+</div>
+
+</section>
+</div>
+
+</main>
+
+<script>
+
+const STORAGE_KEY = "cruzVerdeInventario_v1";
+
+let products = loadProducts();
+let editingId = null;
+
+const $ = id => document.getElementById(id);
+
+const form = $("productForm");
+
+function loadProducts() {
+  try {
+    const data = JSON.parse(
+      localStorage.getItem(STORAGE_KEY) || "[]"
+    );
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveProducts() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(products)
+    );
+  } catch {
+    alert("No se pudieron guardar los datos.");
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[ch]);
+}
+
+function render() {
+
+  const query = $("search").value
+    .trim()
+    .toLocaleLowerCase("es");
+
+  const filtered = products
+    .filter(p =>
+      p.name.toLocaleLowerCase("es").includes(query)
+    )
+    .sort((a,b) =>
+      a.name.localeCompare(b.name, "es")
+    );
+
+  const body = $("inventoryBody");
+  body.innerHTML = "";
+
+  $("emptyState").style.display =
+    filtered.length ? "none" : "block";
+
+  filtered.forEach(p => {
+
+    const total =
+      Number(p.depot) + Number(p.store);
+
+    const low = total <= 3;
+
+    const tr = document.createElement("tr");
+
+    if (low) tr.classList.add("low-row");
+
+    tr.innerHTML = `
+      <td>
+        <div class="product-name">
+          ${escapeHtml(p.name)}
+        </div>
+
+        <div class="product-desc">
+          ${escapeHtml(p.description || "")}
+        </div>
+      </td>
+
+      <td>${p.depot}</td>
+      <td>${p.store}</td>
+
+      <td class="total">${total}</td>
+
+      <td>
+        <span class="status ${low ? "low" : ""}">
+          ${low ? "Reponer" : "En stock"}
+        </span>
+      </td>
+
+      <td>
+        <div class="actions">
+          <button class="secondary"
+          data-edit="${p.id}">
+          Editar
+          </button>
+
+          <button class="danger"
+          data-delete="${p.id}">
+          Borrar
+          </button>
+        </div>
+      </td>
+    `;
+
+    body.appendChild(tr);
+  });
+
+  $("statProducts").textContent = products.length;
+
+  $("statUnits").textContent =
+    products.reduce(
+      (sum,p) =>
+        sum + Number(p.depot) + Number(p.store),
+      0
+    );
+
+  $("statLow").textContent =
+    products.filter(
+      p => Number(p.depot) + Number(p.store) <= 3
+    ).length;
+}
+
+function resetForm() {
+
+  form.reset();
+
+  $("depot").value = 0;
+  $("store").value = 0;
+
+  editingId = null;
+
+  $("formTitle").textContent = "Agregar producto";
+  $("saveButton").textContent = "＋ Guardar producto";
+  $("cancelEdit").style.display = "none";
+}
+
+form.addEventListener("submit", event => {
+
+  event.preventDefault();
+
+  const name = $("name").value.trim();
+  const description = $("description").value.trim();
+
+  const depot = Number($("depot").value);
+  const store = Number($("store").value);
+
+  if (!name) {
+    alert("Ingresá el nombre del producto.");
+    return;
+  }
+
+  if (
+    !Number.isSafeInteger(depot) || depot < 0 ||
+    !Number.isSafeInteger(store) || store < 0
+  ) {
+    alert("Ingresá cantidades enteras válidas.");
+    return;
+  }
+
+  if (editingId !== null) {
+
+    const item = products.find(
+      p => p.id === editingId
+    );
+
+    if (item) {
+      Object.assign(item, {
+        name, description, depot, store
+      });
+    }
+
+  } else {
+
+    products.push({
+      id: crypto.randomUUID
+        ? crypto.randomUUID()
+        : String(Date.now()) + Math.random(),
+      name,
+      description,
+      depot,
+      store
+    });
+
+  }
+
+  saveProducts();
+  resetForm();
+  render();
+
+});
+
+$("inventoryBody").addEventListener("click", event => {
+
+  const editId = event.target.dataset.edit;
+  const deleteId = event.target.dataset.delete;
+
+  if (editId) {
+
+    const p = products.find(
+      item => item.id === editId
+    );
+
+    if (!p) return;
+
+    editingId = p.id;
+
+    $("name").value = p.name;
+    $("description").value = p.description || "";
+    $("depot").value = p.depot;
+    $("store").value = p.store;
+
+    $("formTitle").textContent = "Editar producto";
+    $("saveButton").textContent = "Guardar cambios";
+    $("cancelEdit").style.display = "block";
+
+    $("name").focus();
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    });
+  }
+
+  if (deleteId) {
+
+    const p = products.find(
+      item => item.id === deleteId
+    );
+
+    if (
+      p &&
+      confirm(`¿Querés eliminar "${p.name}"?`)
+    ) {
+
+      products = products.filter(
+        item => item.id !== deleteId
+      );
+
+      if (editingId === deleteId) resetForm();
+
+      saveProducts();
+      render();
+    }
+  }
+
+});
+
+$("cancelEdit").addEventListener(
+  "click", resetForm
+);
+
+$("search").addEventListener(
+  "input", render
+);
+
+$("exportBtn").addEventListener("click", () => {
+
+  const rows = [[
+    "Producto",
+    "Descripcion",
+    "Stock deposito",
+    "Stock local",
+    "Stock total",
+    "Estado"
+  ]];
+
+  products.forEach(p => {
+
+    const total =
+      Number(p.depot) + Number(p.store);
+
+    rows.push([
+      p.name,
+      p.description || "",
+      p.depot,
+      p.store,
+      total,
+      total <= 3 ? "Reponer" : "En stock"
+    ]);
+
+  });
+
+  const csv = "\uFEFF" + rows.map(row =>
+    row.map(value =>
+      `"${String(value).replace(/"/g, '""')}"`
+    ).join(";")
+  ).join("\r\n");
+
+  const blob = new Blob(
+    [csv],
+    {type: "text/csv;charset=utf-8;"}
+  );
+
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+
+  a.href = url;
+  a.download = "inventario-farmacia-cruz-verde.csv";
+  a.click();
+
+  URL.revokeObjectURL(url);
+
+});
+
+render();
+
+</script>
+
+</body>
+</html>
